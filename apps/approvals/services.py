@@ -133,6 +133,42 @@ def submit_for_review(target, user, workspace):
     return post
 
 
+_SUBMITTABLE_STATES = frozenset({"draft", "changes_requested", "rejected"})
+
+
+def submit_post_for_review_checked(post, *, user, workspace):
+    """Validate and submit *post* for review on behalf of an API/MCP caller.
+
+    The composer reaches :func:`submit_for_review` only after its own checks
+    (workflow enabled, required media present). Agents bypass the composer,
+    so this wrapper runs the same checks and raises ``ValueError`` with a
+    human-readable reason instead of letting a post that can only fail at
+    publish time enter the approval queue.
+    """
+    from apps.composer.services import post_media_types, publish_blocker
+
+    if getattr(workspace, "approval_workflow_mode", "none") == "none":
+        raise ValueError(
+            "This workspace has no approval workflow. Enable one in the workspace settings "
+            "or schedule the post directly."
+        )
+    if user is None or not getattr(user, "is_authenticated", False):
+        raise ValueError("Submitting for review needs a user; this key's issuer no longer exists.")
+
+    eligible = [pp for pp in post.platform_posts.select_related("social_account") if pp.status in _SUBMITTABLE_STATES]
+    if not eligible:
+        raise ValueError("No draft, rejected or changes-requested platform posts to submit for review.")
+
+    media_types = post_media_types(post)
+    for pp in eligible:
+        reason = publish_blocker(pp.social_account, media_types=media_types, platform_extra=pp.platform_extra)
+        if reason:
+            raise ValueError(reason)
+
+    submit_for_review(post, user, workspace)
+    return post
+
+
 def approve_post(target, user, workspace, comment=""):
     """Approve a post or single platform post.
 

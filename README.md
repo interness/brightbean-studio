@@ -814,6 +814,7 @@ Don't poll faster than the data changes. Studio syncs the inbox every 5 minutes 
 | `GET` | `/posts/{post_id}` | Read a single post | — |
 | `PATCH` | `/posts/{post_id}` | Update draft fields | `create_posts` |
 | `POST` | `/posts/{post_id}/schedule` | Schedule a draft | `create_posts` + `publish_directly` |
+| `POST` | `/posts/{post_id}/submit` | Submit a draft to the approval workflow | `create_posts` |
 | `POST` | `/posts/{post_id}/cancel` | Revert a scheduled post to draft | `create_posts` |
 | `GET` | `/analytics/accounts/{account_id}` | Channel analytics summary (7/30/90-day window) | `view_analytics` |
 | `GET` | `/analytics/posts/{post_id}` | Post analytics with per-platform metrics | `view_analytics` |
@@ -839,7 +840,8 @@ The MCP server lives at `POST {APP_URL}/api/v1/mcp` and speaks JSON-RPC 2.0 over
 | Tool | Purpose | Permission |
 |---|---|---|
 | `list_accounts` | List social accounts this API key can act on | — |
-| `create_draft` | Create a draft post (caption, title, media, first comment, optional proposed publish time) | `create_posts` |
+| `create_draft` | Create a draft post (caption, title, media, first comment, optional proposed publish time; `submit_for_review: true` sends it straight to Approvals) | `create_posts` |
+| `submit_for_review` | Submit an existing draft to the approval workflow | `create_posts` |
 | `schedule_post` | Create and schedule a post in one step | `create_posts` + `publish_directly` |
 | `schedule_draft` | Schedule an existing draft | `create_posts` + `publish_directly` |
 | `get_post` | Retrieve a post with aggregate status and per-platform state | — |

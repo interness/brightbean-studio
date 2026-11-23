@@ -451,6 +451,26 @@ def schedule(request, post_id: uuid.UUID, payload: ScheduleRequest):
     return _post_to_response(request, post)
 
 
+@router.post("/{post_id}/submit", response=PostResponse, summary="Submit a draft for review")
+def submit(request, post_id: uuid.UUID):
+    """Send a draft into the approval workflow (composer's "Submit for Approval")."""
+    from apps.approvals.services import submit_post_for_review_checked
+
+    enforce_http_rate_limits(request, is_write=True)
+    _require_perm(request, "create_posts")
+    post = _get_workspace_post(request, post_id)
+    api_key = request.api_key  # type: ignore[attr-defined]
+    user = api_key.issued_by if api_key.issued_by_id else None
+    try:
+        submit_post_for_review_checked(post, user=user, workspace=api_key.workspace)
+    except ValueError as exc:
+        raise HttpError(409, str(exc)) from exc
+
+    post.refresh_from_db()
+    log_audit_entry(request, action="post.submit_for_review", target_id=post.id, status_code=200)
+    return _post_to_response(request, post)
+
+
 @router.post("/{post_id}/cancel", response=PostResponse, summary="Cancel a scheduled post (back to draft)")
 def cancel(request, post_id: uuid.UUID):
     enforce_http_rate_limits(request, is_write=True)

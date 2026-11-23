@@ -252,6 +252,12 @@ def _create_draft(args: dict, context: dict[str, Any]) -> dict:
         )
     except ValueError as exc:
         raise JsonRpcError(INVALID_PARAMS, str(exc)) from exc
+    if args.get("submit_for_review"):
+        # The draft stays saved even if the submission is refused, so an
+        # agent can fix the reason (e.g. attach media) and call
+        # submit_for_review later instead of creating a duplicate.
+        _submit_post(post, context)
+        post.refresh_from_db()
     return _wrap_text(_serialize_post(post, context))
 
 
@@ -296,6 +302,15 @@ register_tool(
                         "Optional ISO-8601 UTC suggested publish time (e.g. 2026-06-01T14:00:00Z). "
                         "A non-binding draft hint shown in the drafts/approval views — stored as-is, "
                         "not validated against the future, and never queued for publishing."
+                    ),
+                },
+                "submit_for_review": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Submit the new draft to the workspace's approval workflow right away, so it "
+                        "lands in Approvals instead of Drafts. Fails (keeping the draft) when the "
+                        "workspace has no approval workflow or the post can't publish yet."
                     ),
                 },
             },
@@ -566,6 +581,55 @@ register_tool(
             "additionalProperties": False,
         },
         handler=_cancel_post,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# Tool: submit_for_review — send a draft into the approval workflow
+# ---------------------------------------------------------------------------
+
+
+def _submit_post(post: Post, context: dict[str, Any]) -> None:
+    """Shared by ``create_draft(submit_for_review=true)`` and ``submit_for_review``."""
+    from apps.approvals.services import submit_post_for_review_checked
+
+    api_key = context["api_key"]
+    user = api_key.issued_by if api_key.issued_by_id else None
+    try:
+        submit_post_for_review_checked(post, user=user, workspace=api_key.workspace)
+    except ValueError as exc:
+        raise JsonRpcError(INVALID_PARAMS, str(exc)) from exc
+
+
+def _submit_for_review(args: dict, context: dict[str, Any]) -> dict:
+    """Mirrors the composer's "Submit for Approval" button and REST ``/submit``."""
+    _require_perm(context, "create_posts")
+    if "post_id" not in args:
+        raise JsonRpcError(INVALID_PARAMS, "post_id is required")
+    post = _get_post_for_key(context["api_key"], args["post_id"])
+    _submit_post(post, context)
+    post.refresh_from_db()
+    return _wrap_text(_serialize_post(post, context))
+
+
+register_tool(
+    Tool(
+        name="submit_for_review",
+        description=(
+            "Submit an existing draft (or a post with changes requested / rejected) to the "
+            "workspace's approval workflow. Its platform posts move to pending_review, so the "
+            "post shows up under Approvals and reviewers are notified. Nothing is scheduled or "
+            "published. Refused when the workspace has no approval workflow or the post can't "
+            "publish (e.g. Instagram without media). Requires create_posts."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"post_id": {"type": "string", "format": "uuid"}},
+            "required": ["post_id"],
+            "additionalProperties": False,
+        },
+        handler=_submit_for_review,
     )
 )
 
